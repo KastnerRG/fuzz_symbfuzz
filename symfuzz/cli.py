@@ -51,6 +51,13 @@ def main(argv=None):
                          "designs that use SV constructs Yosys cannot parse "
                          "(parameter type, struct casts, complex package functions). "
                          "sv2v must be installed: https://github.com/zachjs/sv2v")
+    ap.add_argument("--incdir", "-I", action="append", default=[], metavar="DIR",
+                    help="Add DIR to the `include search path. Repeatable. Needed "
+                         "for designs whose sources `include headers from another "
+                         "directory (e.g. OpenTitan's prim_assert.sv).")
+    ap.add_argument("--define", "-D", action="append", default=[], metavar="NAME[=VALUE]",
+                    help="Define a preprocessor macro. Repeatable. E.g. -D SYNTHESIS "
+                         "to select the synthesis branch of assertion macros.")
 
     args = ap.parse_args(argv)
 
@@ -74,7 +81,8 @@ def main(argv=None):
         print("[symfuzz] sv2v preprocessing enabled")
     print(f"[symfuzz] Parsing design: {verilog_files} (top: {module_name})")
     try:
-        design = parse_design(verilog_files, top_module=module_name, use_sv2v=args.sv2v)
+        design = parse_design(verilog_files, top_module=module_name, use_sv2v=args.sv2v,
+                              incdirs=args.incdir, defines=args.define)
     except RuntimeError as e:
         print(f"[symfuzz] ERROR: {e}", file=sys.stderr)
         sys.exit(1)
@@ -102,10 +110,12 @@ def main(argv=None):
         return
 
     # ---- Compile -------------------------------------------------------
-    symbfuzz_bin = _ROOT / "build" / "symbfuzz"
+    # SYMBFUZZ_BIN lets the BMC binary live outside the checkout, e.g. when the
+    # sources are read-only or build artifacts belong in a separate work area.
+    symbfuzz_bin = Path(os.environ.get("SYMBFUZZ_BIN") or (_ROOT / "build" / "symbfuzz"))
     if not symbfuzz_bin.exists():
         print(f"[symfuzz] ERROR: BMC binary not found: {symbfuzz_bin}", file=sys.stderr)
-        print("[symfuzz]   Run:  cd build && make", file=sys.stderr)
+        print("[symfuzz]   Run:  cd build && make   (or set SYMBFUZZ_BIN)", file=sys.stderr)
         sys.exit(1)
 
     driver = SimDriver(design, tb_dir, verbose=args.verbose)

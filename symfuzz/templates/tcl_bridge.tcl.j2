@@ -49,10 +49,18 @@ proc json_parse_kv {obj} {
 
 # ---- Signal accessors ------------------------------------------------ #
 
+# get_value returns X or Z for registers that are still unknown -- true of any
+# design with an async reset that has not been applied yet. Emitting those bare
+# produces invalid JSON, so report them as null and let the driver decide.
+proc json_num_or_null {v} {
+    if {[regexp {^-?\d+$} $v]} { return $v }
+    return "null"
+}
+
 proc emit_state {} {
     set parts {}
 {% for reg in registers %}
-    lappend parts "\"{{ reg.arch_name }}\":[get_value -radix unsigned /{{ module }}/{{ reg.xsim_path }}]"
+    lappend parts "\"{{ reg.arch_name }}\":[json_num_or_null [get_value -radix unsigned /{{ module }}/{{ reg.xsim_path }}]]"
 {% endfor %}
     puts "\{\"state\":\{[join $parts ,]\}\}"
     flush stdout

@@ -113,7 +113,9 @@ def _find_sv2v() -> str | None:
     return None
 
 
-def _sv2v_convert(files: list[str], top_module: str | None, out_path: str) -> list[str]:
+def _sv2v_convert(files: list[str], top_module: str | None, out_path: str,
+                  incdirs: "list[str] | None" = None,
+                  defines: "list[str] | None" = None) -> list[str]:
     """
     Run sv2v on *files* and write the single converted Verilog file to *out_path*.
     Returns ``[out_path]`` on success.  Raises RuntimeError on failure.
@@ -130,7 +132,10 @@ def _sv2v_convert(files: list[str], top_module: str | None, out_path: str) -> li
             "cp sv2v /usr/local/bin/sv2v"
         )
 
-    cmd = [sv2v_bin, "--write=" + out_path] + files
+    cmd = [sv2v_bin, "--write=" + out_path]
+    cmd += ["--incdir=" + d for d in (incdirs or [])]
+    cmd += ["--define=" + d for d in (defines or [])]
+    cmd += files
     if top_module:
         cmd += ["--top=" + top_module]
 
@@ -147,6 +152,8 @@ def parse_design(
     top_module: str | None = None,
     flatten: bool = True,
     use_sv2v: bool = False,
+    incdirs: "list[str] | None" = None,
+    defines: "list[str] | None" = None,
 ) -> DesignInfo:
     """
     Run Yosys on one or more Verilog/SV source files, parse the SMT2
@@ -181,10 +188,17 @@ def parse_design(
         # ---- Optional sv2v preprocessing --------------------------------
         yosys_files = files
         if use_sv2v:
-            converted_files = _sv2v_convert(files, top_module, sv2v_out)
+            converted_files = _sv2v_convert(files, top_module, sv2v_out,
+                                            incdirs=incdirs, defines=defines)
             yosys_files = converted_files
 
-        script_parts = [f"read_verilog -sv {f}" for f in yosys_files]
+        # sv2v output is already preprocessed and flat, so the search path and
+        # macros only matter on the direct-to-Yosys path.
+        read_opts = ""
+        if not use_sv2v:
+            read_opts = "".join(f" -I{d}" for d in (incdirs or []))
+            read_opts += "".join(f" -D{d}" for d in (defines or []))
+        script_parts = [f"read_verilog -sv{read_opts} {f}" for f in yosys_files]
         script_parts.append(
             "hierarchy -check" + (f" -top {top_module}" if top_module else "")
         )
