@@ -103,11 +103,21 @@ class SimDriver:
 
     # ---- simulation commands ----------------------------------------- #
 
+    @staticmethod
+    def _defined_only(state: dict) -> dict[str, int]:
+        """Drop registers the simulator reported as unknown (X/Z -> null).
+
+        An X register has no value to track coverage against, so it is simply
+        absent from the returned state rather than being coerced to 0, which
+        would record a state the design was never actually in.
+        """
+        return {k: v for k, v in state.items() if isinstance(v, int)}
+
     def step(self, inputs: dict[str, int]) -> dict[str, int]:
         resp = self._send({"cmd": "step", "inputs": inputs})
         if "error" in resp:
             raise RuntimeError(f"step error: {resp['error']}")
-        return resp.get("state", {})
+        return self._defined_only(resp.get("state", {}))
 
     def reset(self, cycles: int = 5) -> None:
         resp = self._send({"cmd": "reset", "cycles": cycles})
@@ -118,7 +128,7 @@ class SimDriver:
         resp = self._send({"cmd": "read_state"})
         if "error" in resp:
             raise RuntimeError(f"read_state error: {resp['error']}")
-        return resp.get("state", {})
+        return self._defined_only(resp.get("state", {}))
 
     def force(self, state: dict[str, int]) -> None:
         resp = self._send({"cmd": "force", "state": state})
