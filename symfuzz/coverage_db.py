@@ -31,7 +31,7 @@ class CoverageDB:
         self._init_schema()
         self._last_new_cycle = 0
         self._cycle = 0
-        # BMC-proven unreachable targets: frozenset of (reg, val) pairs
+        # Targets deferred at this campaign's depth bound or after replay misses.
         self._exhausted_targets: set[frozenset] = set()
 
     # ------------------------------------------------------------------ #
@@ -104,7 +104,7 @@ class CoverageDB:
     # ------------------------------------------------------------------ #
 
     def mark_target_exhausted(self, target: dict[str, int]) -> None:
-        """Record that BMC proved *target* is unreachable; skip it in future."""
+        """Defer an unresolved target for this campaign; no unreachability proof."""
         self._exhausted_targets.add(frozenset(target.items()))
 
     def get_unvisited_neighbor_target(self) -> Optional[dict[str, int]]:
@@ -172,7 +172,7 @@ class CoverageDB:
             if key not in visited_set and key not in self._exhausted_targets:
                 return candidate
 
-        return None  # all unvisited values are either covered or proven unreachable
+        return None  # all targets are observed or deferred at the current bound
 
     # ------------------------------------------------------------------ #
     # Reporting                                                            #

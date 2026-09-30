@@ -13,6 +13,8 @@ struct WireConstraint {
 };
 
 struct TargetSpec {
+    // When set, model complete low/high cycles with stable data inputs.
+    std::string clock_port;
     std::vector<WireConstraint> constraints;
     int  min_steps  = 1;
     int  max_steps  = 20;

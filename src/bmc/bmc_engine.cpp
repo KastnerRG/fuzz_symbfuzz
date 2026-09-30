@@ -10,6 +10,7 @@ std::optional<InputSequence> run_bmc(const DesignModel& model,
                                      const TargetSpec&  target,
                                      const BmcConfig&   cfg) {
     for (int k = target.min_steps; k <= target.max_steps; ++k) {
+        if (!target.clock_port.empty() && k % 2 != 0) continue;
         if (cfg.verbose)
             std::cerr << "[BMC] Trying depth k=" << k << " ...\n";
 
@@ -29,7 +30,7 @@ std::optional<InputSequence> run_bmc(const DesignModel& model,
         } else if (res.status == SolveStatus::Unknown) {
             std::cerr << "[BMC] Solver returned 'unknown' at depth " << k
                       << " (timeout or resource limit). Stopping.\n";
-            return std::nullopt;
+            throw BmcUnknown("Solver returned unknown (timeout or resource limit)");
         }
         // unsat → no path of exactly k steps, try k+1
     }

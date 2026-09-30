@@ -11,20 +11,12 @@ SolveResult z3_solve(const std::string& smt2_text, int timeout_ms) {
 
     z3::context ctx;
 
-    // Set timeout via context parameters
-    if (timeout_ms > 0) {
-        z3::params p(ctx);
-        p.set("timeout", static_cast<unsigned>(timeout_ms));
-        // Note: timeout is set per-solver below
-    }
-
-    z3::solver solver(ctx);
-
-    if (timeout_ms > 0) {
-        z3::params p(ctx);
-        p.set("timeout", static_cast<unsigned>(timeout_ms));
-        solver.set(p);
-    }
+    // The script evaluator creates its own solver, so configure its command
+    // context rather than an unrelated z3::solver instance.
+    // Set zero explicitly too: Z3's SMT-LIB options persist globally, while a
+    // nonpositive timeout here means unlimited, even after an earlier call.
+    const std::string script = "(set-option :timeout " +
+        std::to_string(timeout_ms > 0 ? timeout_ms : 0) + ")\n" + smt2_text;
 
     // Parse the SMT2 text
     // Z3 C++ API: parse_smtlib2_string returns a list of assertions
@@ -36,7 +28,7 @@ SolveResult z3_solve(const std::string& smt2_text, int timeout_ms) {
     // including (check-sat) and (get-value), use Z3_eval_smtlib2_string.
 
     const char* result_cstr =
-        Z3_eval_smtlib2_string(ctx, smt2_text.c_str());
+        Z3_eval_smtlib2_string(ctx, script.c_str());
 
     auto t1 = std::chrono::steady_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
@@ -49,6 +41,7 @@ SolveResult z3_solve(const std::string& smt2_text, int timeout_ms) {
     //   "unsat\n(error \"model is not available\")\n"   ← get-value error after unsat is expected
     //   "unknown\n..."
     SolveStatus status = SolveStatus::Unknown;
+    bool status_found = false;
     std::string model_text;
 
     // Z3_eval_smtlib2_string concatenates outputs of ALL commands.
@@ -60,9 +53,12 @@ SolveResult z3_solve(const std::string& smt2_text, int timeout_ms) {
         while (std::getline(rs, line)) {
             // strip \r
             if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (line == "sat")    { status = SolveStatus::Sat;   break; }
-            if (line == "unsat")  { status = SolveStatus::Unsat; break; }
-            if (line == "unknown"){ status = SolveStatus::Unknown; break; }
+            if (line == "sat" || line == "unsat" || line == "unknown") {
+                status = line == "sat" ? SolveStatus::Sat
+                       : line == "unsat" ? SolveStatus::Unsat : SolveStatus::Unknown;
+                status_found = true;
+                break;
+            }
             // skip error / empty lines and keep scanning
         }
         // model_text = everything after the status line
@@ -80,9 +76,10 @@ SolveResult z3_solve(const std::string& smt2_text, int timeout_ms) {
         }
     }
 
-    // Only surface Z3 errors when the result is genuinely indeterminate.
-    // When unsat, the "model is not available" error on get-value is expected.
-    if (status == SolveStatus::Unknown) {
+    // A trailing get-value can report "model is not available" after either
+    // unsat or unknown. Preserve the explicit check-sat status in both cases.
+    // Parse failures without a status must still surface as errors.
+    if (!status_found) {
         Z3_error_code err = Z3_get_error_code(ctx);
         if (err != Z3_OK) {
             std::string msg = Z3_get_error_msg(ctx, err);

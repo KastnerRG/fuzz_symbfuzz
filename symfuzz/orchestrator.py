@@ -31,7 +31,11 @@ class CampaignResult:
     elapsed_sec:      float
     bmc_invocations:  int
     bmc_successes:    int
-    terminated_by:    str   # "full_coverage" | "timeout" | "no_more_targets"
+    terminated_by:    str
+    bmc_candidates:  int = 0
+    bmc_unknowns:    int = 0
+    bmc_bounded_unsat: int = 0
+    bmc_replay_misses: int = 0
 
 
 class Orchestrator:
@@ -64,6 +68,7 @@ class Orchestrator:
         global_cycle    = 0
         bmc_invocations = 0
         bmc_successes   = 0
+        bmc_candidates = bmc_unknowns = bmc_bounded_unsat = bmc_replay_misses = 0
         termination     = "timeout"
 
         # Initial reset
@@ -90,12 +95,20 @@ class Orchestrator:
                     print(f"[orch] Replaying BMC sequence "
                           f"(depth={pending_replay.depth}) ...")
                 replay_states = self.forcer.replay_sequence(pending_replay, reset_first=True)
-                global_cycle = 0
                 found_new = False
                 for s in replay_states:
+                    global_cycle += 1
                     if self.coverage_db.record_state(s, global_cycle):
                         found_new = True
-                    global_cycle += 1
+                reached = bool(replay_states) and all(
+                    replay_states[-1].get(name) == value
+                    for name, value in pending_replay.target.items())
+                if reached:
+                    bmc_successes += 1
+                else:
+                    bmc_replay_misses += 1
+                    if self.verbose:
+                        print(f"[orch] BMC replay missed target {pending_replay.target}")
                 if found_new:
                     last_target    = None   # reset retry counter on progress
                     target_retries = 0
@@ -131,11 +144,11 @@ class Orchestrator:
             if target is None:
                 if self.verbose:
                     print("[orch] No unvisited target found — terminating.")
-                termination = "no_more_targets"
+                termination = "bounded_search_exhausted"
                 break
 
-            # Track consecutive retries on the same target.  If the replay
-            # consistently fails to reach it, mark it exhausted.
+            # A deferred target is unresolved at this bound, never proven
+            # unreachable. Unknown solver outcomes remain retryable.
             if target == last_target:
                 target_retries += 1
             else:
@@ -148,18 +161,25 @@ class Orchestrator:
                 target_retries = 0
                 if self.verbose:
                     print(f"[orch] Target {target} failed {MAX_TARGET_RETRIES} "
-                          f"replays — marked exhausted")
+                          f"replays — deferred for this campaign")
                 continue
 
             bmc_invocations += 1
             bmc_result = self.bmc.find_sequence(target)
 
             if bmc_result is None:
-                self.coverage_db.mark_target_exhausted(target)
+                status = getattr(self.bmc, "last_status", "unknown")
+                if status == "bounded_unsat":
+                    bmc_bounded_unsat += 1
+                    self.coverage_db.mark_target_exhausted(target)
+                else:
+                    bmc_unknowns += 1
+                    last_target = None
+                    target_retries = 0
                 if self.verbose:
-                    print(f"[orch] BMC: no path to {target} — marked exhausted")
+                    print(f"[orch] BMC: {status} for {target}; target remains unresolved")
             else:
-                bmc_successes += 1
+                bmc_candidates += 1
                 if self.verbose:
                     print(f"[orch] BMC: found path of depth {bmc_result.depth} "
                           f"to {target}")
@@ -175,4 +195,8 @@ class Orchestrator:
             bmc_invocations = bmc_invocations,
             bmc_successes   = bmc_successes,
             terminated_by   = termination,
+            bmc_candidates = bmc_candidates,
+            bmc_unknowns = bmc_unknowns,
+            bmc_bounded_unsat = bmc_bounded_unsat,
+            bmc_replay_misses = bmc_replay_misses,
         )

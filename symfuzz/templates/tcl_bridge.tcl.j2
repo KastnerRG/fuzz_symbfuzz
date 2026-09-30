@@ -107,6 +107,9 @@ while {[gets stdin line] >= 0} {
     } elseif {[string match *"reset"* $line]} {
         set cycles [json_get_int $line "cycles"]
         if {$cycles < 0} { set cycles 5 }
+{% for port in data_inputs if port.name != reset_port %}
+        set_input {{ port.name }} 0
+{% endfor %}
 {% if reset_port %}
         set_value -radix unsigned /{{ module }}/{{ reset_port }} {{ "0" if reset_active_low else "1" }}
 {% endif %}

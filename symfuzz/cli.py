@@ -157,7 +157,9 @@ def main(argv=None):
     print(f"  States visited : {result.total_states} / {space_str}")
     print(f"  Coverage       : {result.coverage_pct:.1f}%")
     print(f"  BMC invocations: {result.bmc_invocations} "
-          f"({result.bmc_successes} successful)")
+          f"({result.bmc_successes} reached targets, {result.bmc_candidates} SAT candidates)")
+    print(f"  BMC unresolved : {result.bmc_bounded_unsat} bounded-unsat, "
+          f"{result.bmc_unknowns} unknown, {result.bmc_replay_misses} replay misses")
     print(f"  Coverage DB    : {db_path}")
     print("=" * 60)
 

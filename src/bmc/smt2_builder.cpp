@@ -67,6 +67,21 @@ std::string build_bmc_query(const DesignModel& model,
           << " " << state_var(i + 1) << "))\n";
     q << "\n";
 
+    if (!target.clock_port.empty()) {
+        q << "; Replayable complete clock cycles with stable data inputs\n";
+        for (int i = 0; i <= depth; ++i) {
+            const auto clock = "(" + accessor(M, target.clock_port) + " " + state_var(i) + ")";
+            q << "(assert " << (i % 2 ? clock : "(not " + clock + ")") << ")\n";
+        }
+        for (int i = 0; i + 1 < depth; i += 2) {
+            for (const auto& port : model.inputs) {
+                if (port.name == target.clock_port) continue;
+                q << "(assert (= (" << accessor(M, port.name) << " " << state_var(i)
+                  << ") (" << accessor(M, port.name) << " " << state_var(i + 1) << ")))\n";
+            }
+        }
+    }
+
     // ---- Goal constraints at final state ------------------------------
     q << "; Goal constraints at step " << depth << "\n";
     for (const auto& c : target.constraints) {

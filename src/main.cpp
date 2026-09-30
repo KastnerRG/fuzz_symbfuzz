@@ -22,6 +22,7 @@ void print_usage(const char* argv0) {
         "  --top <module>         Top-level module name (default: auto)\n"
         "  --target <wire>=<val>  Target constraint (repeatable)\n"
         "  --max-steps <N>        BMC depth bound (default: 20)\n"
+        "  --clock <port>        Constrain replayable low/high clock cycles\n"
         "  --timeout <ms>         Z3 timeout per call in ms (default: 30000)\n"
         "  --no-flatten           Do not flatten module hierarchy\n"
         "  --no-zero-init         Do not force registers to 0 at step 0\n"
@@ -40,7 +41,7 @@ symbfuzz::WireConstraint parse_constraint(const std::string& s) {
         throw std::invalid_argument("Expected wire=value, got: " + s);
     std::string name  = s.substr(0, eq);
     uint64_t    value = std::stoull(s.substr(eq + 1));
-    return {name, value, 1};  // width filled after model is parsed
+    return {name, value, 0};  // width filled after model is parsed
 }
 
 } // anonymous namespace
@@ -66,6 +67,8 @@ int main(int argc, char* argv[]) {
             raw_targets.push_back(argv[++i]);
         } else if (arg == "--max-steps" && i + 1 < argc) {
             target.max_steps = std::stoi(argv[++i]);
+        } else if (arg == "--clock" && i + 1 < argc) {
+            target.clock_port = argv[++i];
         } else if (arg == "--timeout" && i + 1 < argc) {
             target.timeout_ms = std::stoi(argv[++i]);
         } else if (arg == "--no-flatten") {
@@ -106,6 +109,12 @@ int main(int argc, char* argv[]) {
         std::cerr << "[symbfuzz] Inputs:    " << model.inputs.size()    << "\n";
         std::cerr << "[symbfuzz] Outputs:   " << model.outputs.size()   << "\n";
         std::cerr << "[symbfuzz] Registers: " << model.registers.size() << "\n";
+        if (!target.clock_port.empty()) {
+            bool found = false;
+            for (const auto& port : model.inputs)
+                if (port.name == target.clock_port && port.width == 1) found = true;
+            if (!found) throw std::runtime_error("Clock must name a single-bit input");
+        }
 
         // ---- Step 3: Resolve target constraints ------------------------
         if (raw_targets.empty()) {
@@ -173,6 +182,9 @@ int main(int argc, char* argv[]) {
             symbfuzz::print_input_sequence(*result, model);
         }
 
+    } catch (const symbfuzz::BmcUnknown& e) {
+        std::cerr << "[Unknown] " << e.what() << "\n";
+        return 3;
     } catch (const symbfuzz::YosysError& e) {
         std::cerr << "[Error] Yosys: " << e.what() << "\n";
         return 1;

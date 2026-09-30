@@ -3,8 +3,13 @@
 #include "bmc/target_spec.h"
 #include "bmc/result_parser.h"
 #include <optional>
+#include <stdexcept>
 
 namespace symbfuzz {
+
+struct BmcUnknown : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 
 struct BmcConfig {
     bool verbose = false;
